@@ -1,3 +1,5 @@
+q = require 'q'
+
 exports.fix_key = (key) ->
   a = key.split('/').map (k) ->
     k.split('').map (c) ->
@@ -7,3 +9,12 @@ exports.fix_key = (key) ->
   .join('/')
   
   a
+
+exports.parallel = (obj) ->
+  res = {}
+  q.all(
+    Object.keys(obj).map (k) ->
+      q.when(obj[k]).then (v) ->
+        res[k] = v
+  ).then ->
+    res

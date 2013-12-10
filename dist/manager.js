@@ -1,14 +1,19 @@
 (function() {
-  var Manager, Worker, q;
+  var Firebase, Job, Manager, Worker, q;
 
   q = require('q');
 
+  Job = require('./job');
+
   Worker = require('./worker');
+
+  Firebase = require('firebase');
 
   Manager = (function() {
     function Manager(queue, work_performer) {
       this.queue = queue;
       this.work_performer = work_performer;
+      this.queue.manager = this;
       this.workers = {
         idle: [],
         working: []
@@ -16,7 +21,15 @@
     }
 
     Manager.prototype.start = function() {
-      return this.scale(1);
+      var _this = this;
+      this.connections = {};
+      return q.all(['jobs', 'pending', 'started', 'succeeded', 'failed'].map(function(name) {
+        return _this.queue[name].connection.then(function(c) {
+          return _this.connections[name] = c;
+        });
+      })).then(function() {
+        return _this.scale(5);
+      });
     };
 
     Manager.prototype.scale = function(n_workers) {
@@ -41,13 +54,13 @@
           for (var _i = 0; 0 <= diff ? _i < diff : _i > diff; 0 <= diff ? _i++ : _i--){ _results.push(_i); }
           return _results;
         }).apply(this).map(function(x) {
-          w = new Worker(_this, _this.work_performer);
+          w = new Worker(_this.queue, _this.work_performer);
           _this.watch_worker(w);
           _this.workers.idle.push(w);
-          _this.work_next_job();
           return w;
         });
         d.resolve(added);
+        this.work_next_job();
       } else {
         d.resolve([]);
       }
@@ -69,19 +82,62 @@
       });
     };
 
-    Manager.prototype.get_next_job = function(after_job) {
-      return this.queue.pending.pop(after_job).then(function(job) {
-        return job.claim().then(function(claimed) {
-          if (!claimed) {
-            return next_job(job);
+    Manager.prototype.claim_job = function(job_name) {
+      var claim, complete, d,
+        _this = this;
+      d = q.defer();
+      claim = function(claimed_at) {
+        var claimed_ago;
+        if (claimed_at == null) {
+          return Firebase.ServerValue.TIMESTAMP;
+        }
+        claimed_ago = _this.queue.connection.server_time - claimed_at;
+        if (claimed_ago > _this.queue.options.claim_ttl) {
+          return Firebase.ServerValue.TIMESTAMP;
+        }
+      };
+      complete = function(err, committed, snap) {
+        if (err != null) {
+          if (err.message === 'set') {
+            console.log("Error: Claim Transaction had an error (don't fret, this one isn't fatal)");
+          } else {
+            console.log('Error: Claim Transaction had an error');
+            console.log(err.stack);
           }
-          return job;
+          return d.resolve(false);
+        }
+        if (committed) {
+          return d.resolve(true);
+        }
+        return d.resolve(false);
+      };
+      this.connections.jobs.child(job_name + '/meta/claimed_at').transaction(claim, complete, false);
+      return d.promise;
+    };
+
+    Manager.prototype.get_next_job = function(after_name) {
+      var _this = this;
+      return this.queue.pending.pop(after_name).then(function(pending_snap) {
+        return _this.claim_job(pending_snap.val()).then(function(claimed) {
+          var job;
+          if (!claimed) {
+            return _this.get_next_job(pending_snap.name());
+          }
+          job = new Job(_this.queue);
+          job.ref = _this.connections.jobs.child(pending_snap.val());
+          return job.inflate().then(function() {
+            return job;
+          });
         });
       });
     };
 
     Manager.prototype.work_next_job = function() {
-      var worker;
+      var worker,
+        _this = this;
+      if (this.workers.idle.length === 0) {
+        return;
+      }
       worker = this.workers.idle.pop();
       if (worker == null) {
         console.log('Error: No worker on the idle queue when one was expected');
@@ -89,8 +145,9 @@
       }
       this.workers.working.push(worker);
       return this.get_next_job().then(function(job) {
-        return job.work().then(function() {
-          return worker.perform(job);
+        worker.perform(job);
+        return setTimeout(function() {
+          return _this.work_next_job();
         });
       });
     };

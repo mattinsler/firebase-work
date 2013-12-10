@@ -18,15 +18,15 @@ class Queue
       @connection.then (c) ->
         q.ninvoke(c, 'set', null)
     
-    pop: (after_job) ->
+    pop: (after_name) ->
       @connection.then (c) =>
         d = q.defer()
         
-        query = if after_job? then c.startAt(undefined, after_job.ref.name()) else c.startAt()
+        query = if after_name? then c.startAt(null, after_name + ' ') else c.startAt()
         
-        query.limit(1).on 'child_added', (s) =>
-          return d.resolve(null) unless s.val()?
-          d.resolve(new Job(s.ref(), @queue))
+        query.limit(1).once 'child_added', (snap) =>
+          return d.resolve(null) unless snap.val()?
+          d.resolve(snap)
         
         d.promise
   
@@ -36,8 +36,9 @@ class Queue
     @connection.on('connected', -> console.log('connected'))
     @connection.on('disconnected', -> console.log('disconnected'))
     
+    @jobs = new Queue.Type(@, 'jobs')
     @pending = new Queue.Type(@, 'pending')
-    @working = new Queue.Type(@, 'working')
+    @started = new Queue.Type(@, 'started')
     @succeeded = new Queue.Type(@, 'succeeded')
     @failed = new Queue.Type(@, 'failed')
     
@@ -45,9 +46,9 @@ class Queue
       claim_ttl: 5000
   
   push: (job_data) ->
-    @pending.connection.then (c) =>
-      ref = c.push()
-      job = new Job(ref, @)
-      q.ninvoke(ref, 'set', job_data)
+    job = new Job(@)
+    job.data = job_data
+    job.save()
+    job
 
 module.exports = Queue

@@ -8,6 +8,15 @@ queue = new Work.Queue(process.env.YOUR_FIREBASE_URL)
 performer = (job) ->
   console.log "I'm doing work now!!! Look at me go!!"
   q.delay(2000)
+  .then =>
+    @progress(25)
+    q.delay(2000)
+  .then =>
+    @progress(50)
+    q.delay(2000)
+  .then =>
+    @progress(75)
+    q.delay(2000)
 
 # performer = (job) ->
 #   console.log "I'm doing work now!!! Look at me go!!"

@@ -1,14 +1,24 @@
 q = require 'q'
+Job = require './job'
 Worker = require './worker'
+Firebase = require 'firebase'
 
 class Manager
   constructor: (@queue, @work_performer) ->
+    @queue.manager = @
     @workers =
       idle: []
       working: []
   
   start: ->
-    @scale(1)
+    @connections = {}
+    q.all(
+      ['jobs', 'pending', 'started', 'succeeded', 'failed'].map (name) =>
+        @queue[name].connection.then (c) =>
+          @connections[name] = c
+    )
+    .then =>
+      @scale(5)
   
   scale: (n_workers) ->
     d = q.defer()
@@ -32,12 +42,12 @@ class Manager
     # scale up
     else if diff > 0
       added = [0...diff].map (x) =>
-        w = new Worker(@, @work_performer)
+        w = new Worker(@queue, @work_performer)
         @watch_worker(w)
         @workers.idle.push(w)
-        @work_next_job()
         w
       d.resolve(added)
+      @work_next_job()
     
     # no scaling
     else
@@ -55,13 +65,46 @@ class Manager
       @workers.idle.push(worker)
       @work_next_job()
   
-  get_next_job: (after_job) ->
-    @queue.pending.pop(after_job).then (job) ->
-      job.claim().then (claimed) ->
-        return next_job(job) unless claimed
-        job
+  claim_job: (job_name) ->
+    d = q.defer()
+    
+    claim = (claimed_at) =>
+      return Firebase.ServerValue.TIMESTAMP unless claimed_at?
+      
+      claimed_ago = @queue.connection.server_time - claimed_at
+      return Firebase.ServerValue.TIMESTAMP if claimed_ago > @queue.options.claim_ttl
+    
+    complete = (err, committed, snap) =>
+      if err?
+        if err.message is 'set'
+          console.log "Error: Claim Transaction had an error (don't fret, this one isn't fatal)"
+        else
+          console.log 'Error: Claim Transaction had an error'
+          console.log err.stack
+        return d.resolve(false)
+      
+      return d.resolve(true) if committed
+      d.resolve(false)
+    
+    @connections.jobs.child(job_name + '/meta/claimed_at').transaction(claim, complete, false)
+    d.promise
+  
+  get_next_job: (after_name) ->
+    @queue.pending.pop(after_name)
+    .then (pending_snap) =>
+      @claim_job(pending_snap.val())
+      .then (claimed) =>
+        return @get_next_job(pending_snap.name()) unless claimed
+        
+        job = new Job(@queue)
+        job.ref = @connections.jobs.child(pending_snap.val())
+        job.inflate()
+        .then ->
+          job
   
   work_next_job: ->
+    return if @workers.idle.length is 0
+  
     worker = @workers.idle.pop()
     unless worker?
       console.log 'Error: No worker on the idle queue when one was expected'
@@ -69,9 +112,9 @@ class Manager
     @workers.working.push(worker)
     
     @get_next_job()
-    .then (job) ->
-      job.work()
-      .then ->
-        worker.perform(job)
+    .then (job) =>
+      worker.perform(job)
+    
+      setTimeout => @work_next_job()
   
 module.exports = Manager

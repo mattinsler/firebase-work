@@ -34,17 +34,17 @@
         });
       };
 
-      Type.prototype.pop = function(after_job) {
+      Type.prototype.pop = function(after_name) {
         var _this = this;
         return this.connection.then(function(c) {
           var d, query;
           d = q.defer();
-          query = after_job != null ? c.startAt(void 0, after_job.ref.name()) : c.startAt();
-          query.limit(1).on('child_added', function(s) {
-            if (s.val() == null) {
+          query = after_name != null ? c.startAt(null, after_name + ' ') : c.startAt();
+          query.limit(1).once('child_added', function(snap) {
+            if (snap.val() == null) {
               return d.resolve(null);
             }
-            return d.resolve(new Job(s.ref(), _this.queue));
+            return d.resolve(snap);
           });
           return d.promise;
         });
@@ -66,8 +66,9 @@
       this.connection.on('disconnected', function() {
         return console.log('disconnected');
       });
+      this.jobs = new Queue.Type(this, 'jobs');
       this.pending = new Queue.Type(this, 'pending');
-      this.working = new Queue.Type(this, 'working');
+      this.started = new Queue.Type(this, 'started');
       this.succeeded = new Queue.Type(this, 'succeeded');
       this.failed = new Queue.Type(this, 'failed');
       this.options = {
@@ -76,13 +77,11 @@
     }
 
     Queue.prototype.push = function(job_data) {
-      var _this = this;
-      return this.pending.connection.then(function(c) {
-        var job, ref;
-        ref = c.push();
-        job = new Job(ref, _this);
-        return q.ninvoke(ref, 'set', job_data);
-      });
+      var job;
+      job = new Job(this);
+      job.data = job_data;
+      job.save();
+      return job;
     };
 
     return Queue;
