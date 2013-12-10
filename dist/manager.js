@@ -20,7 +20,7 @@
       };
     }
 
-    Manager.prototype.start = function() {
+    Manager.prototype.start = function(n_workers) {
       var _this = this;
       this.connections = {};
       return q.all(['jobs', 'pending', 'started', 'succeeded', 'failed'].map(function(name) {
@@ -28,7 +28,7 @@
           return _this.connections[name] = c;
         });
       })).then(function() {
-        return _this.scale(5);
+        return _this.scale(n_workers || 1);
       });
     };
 

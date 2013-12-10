@@ -10,7 +10,7 @@ class Manager
       idle: []
       working: []
   
-  start: ->
+  start: (n_workers) ->
     @connections = {}
     q.all(
       ['jobs', 'pending', 'started', 'succeeded', 'failed'].map (name) =>
@@ -18,7 +18,7 @@ class Manager
           @connections[name] = c
     )
     .then =>
-      @scale(5)
+      @scale(n_workers or 1)
   
   scale: (n_workers) ->
     d = q.defer()
