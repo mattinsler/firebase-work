@@ -10,7 +10,7 @@ class Connection extends EventEmitter
     @server_time_offset = null
     
     @on 'connected', =>
-      @connection.child('.info/serverTimeOffset').once 'value', (s) =>
+      @connection.root().child('.info/serverTimeOffset').once 'value', (s) =>
         @server_time_offset = s.val()
     
     @__defineGetter__ 'server_time', ->

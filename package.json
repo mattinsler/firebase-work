@@ -1,7 +1,7 @@
 {
   "name": "firebase-work",
   "description": "Firebase work-queue system",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "homepage": "https://github.com/mattinsler/firebase-work",
   "author": {
     "name": "Matt Insler",

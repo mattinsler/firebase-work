@@ -21,7 +21,7 @@
       this.cache = {};
       this.server_time_offset = null;
       this.on('connected', function() {
-        return _this.connection.child('.info/serverTimeOffset').once('value', function(s) {
+        return _this.connection.root().child('.info/serverTimeOffset').once('value', function(s) {
           return _this.server_time_offset = s.val();
         });
       });
