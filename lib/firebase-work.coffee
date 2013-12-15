@@ -1,14 +1,10 @@
 exports.Connection = require './connection'
+exports.FirebaseConnection = require './firebase_connection'
 exports.Job = require './job'
-exports.Manager = require './manager'
 exports.Queue = require './queue'
 exports.Worker = require './worker'
 
-exports.connections = {}
-exports.connect = (url) ->
-  URL = require 'url'
-  
-  # normalize url
-  url = URL.format(URL.parse(url))
-  return exports.connections[url] if exports.connections[url]?
-  exports.connections[url] = new exports.Connection(url)
+exports.WorkerManager = require './worker_manager'
+
+exports.JobStateChangeTask = require './job_state_change_task'
+exports.TaskManager = require './task_manager'

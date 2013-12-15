@@ -1,54 +1,45 @@
 q = require 'q'
+URL = require 'url'
 Job = require './job'
-Work = require './firebase-work'
+Connection = require './connection'
 
 class Queue
-  @Type: class Type
-    constructor: (@queue, @type) ->
-      @connection = @queue.connection.get_child(@type)
-    
-    count: ->
-      @connection.then (c) ->
-        d = q.defer()
-        c.once 'value', (s) ->
-          d.resolve(s.numChildren())
-        d.promise
-    
-    clear: ->
-      @connection.then (c) ->
-        q.ninvoke(c, 'set', null)
-    
-    pop: (after_name) ->
-      @connection.then (c) =>
-        d = q.defer()
-        
-        query = if after_name? then c.startAt(null, after_name + ' ') else c.startAt()
-        
-        query.limit(1).once 'child_added', (snap) =>
-          return d.resolve(null) unless snap.val()?
-          d.resolve(snap)
-        
-        d.promise
-  
-  constructor: (@root_url) ->
-    @connection = Work.connect(@root_url)
-    @connection.on('connecting', -> console.log('connecting'))
-    @connection.on('connected', -> console.log('connected'))
-    @connection.on('disconnected', -> console.log('disconnected'))
-    
-    @jobs = new Queue.Type(@, 'jobs')
-    @pending = new Queue.Type(@, 'pending')
-    @started = new Queue.Type(@, 'started')
-    @succeeded = new Queue.Type(@, 'succeeded')
-    @failed = new Queue.Type(@, 'failed')
-    
+  constructor: (url) ->
+    @connection = Connection.connect(url)
     @options = 
       claim_ttl: 5000
   
-  push: (job_data) ->
+  _get_next: (conn, after) ->
+    d = q.defer()
+    
+    pending = conn.child('pending')
+    
+    if after?
+      if typeof after is 'number'
+        query = pending.startAt(after)
+      else if typeof after is 'string'
+        query = pending.startAt(null, after + ' ')
+      else if after.priority? and after.name?
+        query = pending.startAt(after.priority, after.name)
+      else if after.priority?
+        query = pending.startAt(after.priority)
+      else if after.name?
+        query = pending.startAt(null, after.name + ' ')
+    
+    query ?= pending.startAt()
+    
+    query.limit(1).once 'child_added', (snap) ->
+      d.resolve(snap)
+    
+    d.promise
+  
+  next: (after) ->
+    @connection.get().then (conn) =>
+      @_get_next(conn, after)
+  
+  push: (data) ->
     job = new Job(@)
-    job.data = job_data
-    job.save()
+    job.save(data)
     job
 
 module.exports = Queue
